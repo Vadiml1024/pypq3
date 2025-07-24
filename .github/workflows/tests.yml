@@ -28,13 +28,7 @@ jobs:
 
     - name: Run tests with pytest
       run: |
-        pytest tests/ --cov=pypq3 --cov-report=xml --cov-report=term-missing
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage.xml
-        fail_ci_if_error: true
+        pytest tests/ --cov=pypq3 --cov-report=term-missing
 
   lint:
     runs-on: ubuntu-latest
