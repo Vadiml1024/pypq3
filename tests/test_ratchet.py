@@ -887,3 +887,140 @@ class TestMessageKeyManagement:
         short_header = b"too_short"
         with pytest.raises(ProtocolStateError, match="Invalid header length"):
             ratchet._parse_header(short_header)
+
+    @patch("pypq3.ratchet.HKDF")
+    @patch("pypq3.ratchet.KeyPair")
+    def test_encrypt_message_crypto_error(self, mock_keypair_class, mock_hkdf_class):
+        """Test encrypt_message exception handling."""
+        mock_hkdf = MagicMock()
+        mock_hkdf_class.return_value = mock_hkdf
+        mock_hkdf.derive.return_value = (
+            b"root_key_32_bytes_test_value1234"
+            + b"chain_key_32_bytes_test_value123"
+            + b"header_key_32_bytes_test_value12"
+        )
+
+        mock_keypair = MagicMock()
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret)
+
+        # Mock PQ3Crypto to raise exception
+        with patch("pypq3.ratchet.PQ3Crypto") as mock_crypto:
+            mock_crypto.encrypt_message.side_effect = Exception("Encryption failed")
+            
+            with pytest.raises(CryptographicError, match="Message encryption failed"):
+                ratchet.encrypt_message(b"test message")
+
+    @patch("pypq3.ratchet.HKDF")
+    @patch("pypq3.ratchet.KeyPair")
+    def test_decrypt_message_crypto_error(self, mock_keypair_class, mock_hkdf_class):
+        """Test decrypt_message exception handling."""
+        mock_hkdf = MagicMock()
+        mock_hkdf_class.return_value = mock_hkdf
+        mock_hkdf.derive.return_value = (
+            b"root_key_32_bytes_test_value1234"
+            + b"chain_key_32_bytes_test_value123"
+            + b"header_key_32_bytes_test_value12"
+        )
+
+        mock_keypair = MagicMock()
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret)
+
+        # Create a valid header
+        test_public_key = b"\x04" + b"x" * 32 + b"y" * 32
+        test_header = test_public_key + (0).to_bytes(4, "big")
+        
+        # Mock PQ3Crypto to raise exception during decryption
+        with patch("pypq3.ratchet.PQ3Crypto") as mock_crypto:
+            mock_crypto.decrypt_message.side_effect = Exception("Decryption failed")
+            
+            with pytest.raises(CryptographicError, match="Message decryption failed"):
+                ratchet.decrypt_message(test_header, b"ciphertext")
+
+    @patch("pypq3.ratchet.HKDF")
+    @patch("pypq3.ratchet.KeyPair")
+    def test_decrypt_message_with_dh_ratchet_needed(self, mock_keypair_class, mock_hkdf_class):
+        """Test decrypt_message when DH ratchet is needed."""
+        # Setup multiple HKDF instances for the various operations
+        mock_hkdf_instances = [MagicMock() for _ in range(4)]
+        mock_hkdf_class.side_effect = mock_hkdf_instances
+        
+        mock_hkdf_instances[0].derive.return_value = (  # Initial state
+            b"root_key_32_bytes_test_value1234"
+            + b"chain_key_32_bytes_test_value123"
+            + b"header_key_32_bytes_test_value12"
+        )
+
+        mock_keypair = MagicMock()
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret)
+
+        # Set up state with no remote public key (will trigger DH ratchet)
+        ratchet.state.dh_remote_public = None
+        ratchet.state.recv_count = 0
+        
+        # Create header with new public key - use proper 65-byte format
+        new_public_key = b"\x04" + b"a" * 32 + b"b" * 32  # 65 bytes: 0x04 + 32-byte x + 32-byte y
+        test_header = new_public_key + (0).to_bytes(4, "big")
+        
+        # Mock _skip_message_keys and _dh_ratchet
+        with patch.object(ratchet, '_skip_message_keys') as mock_skip, \
+             patch.object(ratchet, '_dh_ratchet') as mock_dh_ratchet, \
+             patch("pypq3.ratchet.PQ3Crypto") as mock_crypto:
+            
+            # Setup return values
+            mock_crypto.decrypt_message.return_value = b"decrypted"
+            
+            # Mock the _kdf_ck call
+            mock_hkdf_instances[1].derive.return_value = (
+                b"new_chain_32_bytes_test_value12" + b"message_key_32_bytes_test_val12"
+            )
+            
+            # Decrypt message
+            result = ratchet.decrypt_message(test_header, b"ciphertext")
+            
+            # Verify DH ratchet was triggered
+            mock_skip.assert_called_with(0)  # Skip to current recv_count
+            mock_dh_ratchet.assert_called_once_with(new_public_key)
+            assert result == b"decrypted"
+
+    @patch("pypq3.ratchet.HKDF")
+    @patch("pypq3.ratchet.KeyPair")
+    def test_get_public_key_methods(self, mock_keypair_class, mock_hkdf_class):
+        """Test get_public_key and get_kyber_public_key methods."""
+        mock_hkdf = MagicMock()
+        mock_hkdf_class.return_value = mock_hkdf
+        mock_hkdf.derive.return_value = (
+            b"root_key_32_bytes_test_value1234"
+            + b"chain_key_32_bytes_test_value123"
+            + b"header_key_32_bytes_test_value12"
+        )
+
+        mock_keypair = MagicMock()
+        mock_keypair.get_ecc_public_bytes.return_value = b"ecc_public_key_test"
+        mock_keypair.get_kyber_public_bytes.return_value = b"kyber_public_key_test"
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret)
+
+        # Test get_public_key
+        ecc_key = ratchet.get_public_key()
+        assert ecc_key == b"ecc_public_key_test"
+        mock_keypair.get_ecc_public_bytes.assert_called_once()
+
+        # Test get_kyber_public_key
+        kyber_key = ratchet.get_kyber_public_key()  
+        assert kyber_key == b"kyber_public_key_test"
+        mock_keypair.get_kyber_public_bytes.assert_called_once()
