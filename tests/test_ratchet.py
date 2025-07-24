@@ -348,3 +348,187 @@ class TestDHRatchetOperations:
             # Verify HKDF was called correctly for key derivation
             assert mock_hkdf_class.call_count == 2  # Initial + KDF call
             mock_hkdf_kdf.derive.assert_called_once_with(dh_output)
+
+
+class TestKyberRatchetIntegration:
+    """Test Kyber ratchet integration and post-quantum key rotation."""
+
+    @patch("pypq3.ratchet.HKDF")
+    @patch("pypq3.ratchet.KeyPair")
+    def test_kyber_ratchet_trigger_interval(self, mock_keypair_class, mock_hkdf_class):
+        """Test Kyber ratchet triggering at correct interval."""
+        # Setup mock HKDF for initial state
+        mock_hkdf = MagicMock()
+        mock_hkdf_class.return_value = mock_hkdf
+        mock_hkdf.derive.side_effect = [
+            # Initial state
+            b"root_key_32_bytes_test_value1234"
+            + b"chain_key_32_bytes_test_value123"
+            + b"header_key_32_bytes_test_value12",
+            # KDF result for Kyber ratchet
+            b"new_root_key_32_bytes_test_val12" + b"new_chain_key_32_bytes_test_va12",
+        ]
+
+        # Setup keypair with Kyber private key
+        mock_keypair = MagicMock()
+        mock_keypair.kyber_private_key = b"kyber_private_key_test_data"
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret)
+
+        # Set up state to trigger Kyber ratchet (counter at multiple of 50)
+        ratchet.state.kyber_counter = 50  # Should trigger
+        kyber_ciphertext = b"kyber_ciphertext_test_data_for_decaps_operation"
+
+        with patch("kyber_py.kyber") as mock_kyber:
+            mock_kyber.Kyber1024.decaps.return_value = b"kyber_shared_secret_32_bytes_test"
+            
+            ratchet._kyber_ratchet(kyber_ciphertext)
+
+        # Verify Kyber ratchet was executed
+        mock_kyber.Kyber1024.decaps.assert_called_once_with(
+            b"kyber_private_key_test_data", kyber_ciphertext
+        )
+        assert ratchet.state.kyber_counter == 51
+
+    @patch("pypq3.ratchet.HKDF")
+    @patch("pypq3.ratchet.KeyPair")
+    def test_kyber_ratchet_no_trigger_not_interval(self, mock_keypair_class, mock_hkdf_class):
+        """Test Kyber ratchet not triggering when not at interval."""
+        # Setup mock HKDF for initial state
+        mock_hkdf = MagicMock()
+        mock_hkdf_class.return_value = mock_hkdf
+        mock_hkdf.derive.return_value = (
+            b"root_key_32_bytes_test_value1234"
+            + b"chain_key_32_bytes_test_value123"
+            + b"header_key_32_bytes_test_value12"
+        )
+
+        mock_keypair = MagicMock()
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret)
+
+        # Set up state to NOT trigger Kyber ratchet (counter not at multiple of 50)
+        ratchet.state.kyber_counter = 25  # Should NOT trigger
+        original_counter = ratchet.state.kyber_counter
+        kyber_ciphertext = b"kyber_ciphertext_test_data"
+
+        with patch("kyber_py.kyber") as mock_kyber:
+            ratchet._kyber_ratchet(kyber_ciphertext)
+
+        # Verify Kyber ratchet was NOT executed
+        mock_kyber.Kyber1024.decaps.assert_not_called()
+        assert ratchet.state.kyber_counter == original_counter  # Unchanged
+
+    @patch("pypq3.ratchet.HKDF")
+    @patch("pypq3.ratchet.KeyPair")
+    def test_kyber_ratchet_no_private_key(self, mock_keypair_class, mock_hkdf_class):
+        """Test Kyber ratchet failure when no Kyber private key available."""
+        # Setup mock HKDF for initial state
+        mock_hkdf = MagicMock()
+        mock_hkdf_class.return_value = mock_hkdf
+        mock_hkdf.derive.return_value = (
+            b"root_key_32_bytes_test_value1234"
+            + b"chain_key_32_bytes_test_value123"
+            + b"header_key_32_bytes_test_value12"
+        )
+
+        # Setup keypair WITHOUT Kyber private key
+        mock_keypair = MagicMock()
+        del mock_keypair.kyber_private_key  # Remove the attribute
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret)
+
+        # Set up state to trigger Kyber ratchet
+        ratchet.state.kyber_counter = 100  # Should trigger
+        kyber_ciphertext = b"kyber_ciphertext_test_data"
+
+        with pytest.raises(ProtocolStateError, match="Kyber ratchet failed"):
+            ratchet._kyber_ratchet(kyber_ciphertext)
+
+    @patch("pypq3.ratchet.HKDF")
+    @patch("pypq3.ratchet.KeyPair")
+    def test_kyber_ratchet_decaps_failure(self, mock_keypair_class, mock_hkdf_class):
+        """Test Kyber ratchet failure during decapsulation."""
+        # Setup mock HKDF for initial state
+        mock_hkdf = MagicMock()
+        mock_hkdf_class.return_value = mock_hkdf
+        mock_hkdf.derive.return_value = (
+            b"root_key_32_bytes_test_value1234"
+            + b"chain_key_32_bytes_test_value123"
+            + b"header_key_32_bytes_test_value12"
+        )
+
+        # Setup keypair with Kyber private key
+        mock_keypair = MagicMock()
+        mock_keypair.kyber_private_key = b"kyber_private_key_test_data"
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret)
+
+        # Set up state to trigger Kyber ratchet
+        ratchet.state.kyber_counter = 150  # Should trigger
+        kyber_ciphertext = b"invalid_kyber_ciphertext"
+
+        with patch("kyber_py.kyber") as mock_kyber:
+            # Simulate decapsulation failure
+            mock_kyber.Kyber1024.decaps.side_effect = ValueError("Invalid ciphertext")
+            
+            with pytest.raises(ProtocolStateError, match="Kyber ratchet failed"):
+                ratchet._kyber_ratchet(kyber_ciphertext)
+
+    @patch("pypq3.ratchet.HKDF")
+    @patch("pypq3.ratchet.KeyPair")
+    def test_kyber_ratchet_root_key_update(self, mock_keypair_class, mock_hkdf_class):
+        """Test that Kyber ratchet properly updates root key."""
+        # Setup mock HKDF for initial state and KDF
+        mock_hkdf_init = MagicMock()
+        mock_hkdf_kdf = MagicMock()
+        mock_hkdf_class.side_effect = [mock_hkdf_init, mock_hkdf_kdf]
+        
+        mock_hkdf_init.derive.return_value = (
+            b"root_key_32_bytes_test_value1234"
+            + b"chain_key_32_bytes_test_value123"
+            + b"header_key_32_bytes_test_value12"
+        )
+        mock_hkdf_kdf.derive.return_value = (
+            b"updated_root_key_32_bytes_test12" + b"ignored_chain_key_32_bytes_te12"
+        )
+
+        # Setup keypair with Kyber private key
+        mock_keypair = MagicMock()
+        mock_keypair.kyber_private_key = b"kyber_private_key_test_data"
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret)
+
+        # Store original root key for comparison
+        original_root_key = ratchet.state.root_key
+        
+        # Set up state to trigger Kyber ratchet
+        ratchet.state.kyber_counter = 200  # Should trigger
+        kyber_ciphertext = b"valid_kyber_ciphertext_test_data"
+
+        with patch("kyber_py.kyber") as mock_kyber:
+            mock_kyber.Kyber1024.decaps.return_value = b"kyber_shared_secret_32_bytes_test" 
+            
+            ratchet._kyber_ratchet(kyber_ciphertext)
+
+        # Verify root key was updated
+        assert ratchet.state.root_key != original_root_key
+        assert ratchet.state.root_key == b"updated_root_key_32_bytes_test12"
+        
+        # Verify KDF was called with Kyber shared secret
+        mock_hkdf_kdf.derive.assert_called_once_with(b"kyber_shared_secret_32_bytes_test")
