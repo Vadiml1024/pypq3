@@ -532,3 +532,358 @@ class TestKyberRatchetIntegration:
         
         # Verify KDF was called with Kyber shared secret
         mock_hkdf_kdf.derive.assert_called_once_with(b"kyber_shared_secret_32_bytes_test")
+
+
+class TestChainKeyOperations:
+    """Test chain key derivation and message key generation."""
+
+    def test_kdf_ck_chain_key_derivation(self):
+        """Test chain key and message key derivation function."""
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        
+        with patch("pypq3.ratchet.HKDF") as mock_hkdf_class:
+            # Setup initial HKDF for ratchet creation
+            mock_hkdf_init = MagicMock()
+            mock_hkdf_init.derive.return_value = (
+                b"root_key_32_bytes_test_value1234"
+                + b"chain_key_32_bytes_test_value123"
+                + b"header_key_32_bytes_test_value12"
+            )
+            
+            # Setup HKDF for _kdf_ck call
+            mock_hkdf_ck = MagicMock()
+            mock_hkdf_ck.derive.return_value = (
+                b"next_chain_key_32_bytes_test_v12" 
+                + b"message_key_32_bytes_test_val12"
+            )
+            
+            mock_hkdf_class.side_effect = [mock_hkdf_init, mock_hkdf_ck]
+            
+            with patch("pypq3.ratchet.KeyPair"):
+                ratchet = PQ3Ratchet(mock_shared_secret)
+
+            # Test chain key derivation
+            old_chain_key = b"old_chain_key_32_bytes_test_v123"
+
+            next_chain_key, message_key = ratchet._kdf_ck(old_chain_key)
+
+            assert next_chain_key == b"next_chain_key_32_bytes_test_v12"
+            assert message_key == b"message_key_32_bytes_test_val12"
+
+            # Verify HKDF was called correctly
+            assert mock_hkdf_class.call_count == 2  # Initial + _kdf_ck call
+            mock_hkdf_ck.derive.assert_called_once_with(b"\\x01")
+
+    @patch("pypq3.ratchet.HKDF")
+    @patch("pypq3.ratchet.KeyPair")
+    def test_sending_chain_key_advancement(self, mock_keypair_class, mock_hkdf_class):
+        """Test sending chain key advancement during encryption."""
+        # Setup mock HKDF for multiple calls
+        mock_hkdf_instances = [MagicMock() for _ in range(3)]
+        mock_hkdf_class.side_effect = mock_hkdf_instances
+        
+        mock_hkdf_instances[0].derive.return_value = (  # Initial state
+            b"root_key_32_bytes_test_value1234"
+            + b"send_chain_32_bytes_test_value12"
+            + b"header_key_32_bytes_test_value12"
+        )
+        mock_hkdf_instances[1].derive.return_value = (  # First _kdf_ck
+            b"new_chain_key_32_bytes_test_v123" + b"message_key_1_32_bytes_test_v12"
+        )
+        mock_hkdf_instances[2].derive.return_value = (  # Second _kdf_ck  
+            b"newer_chain_key_32_bytes_test_v12" + b"message_key_2_32_bytes_test_v12"
+        )
+
+        mock_keypair = MagicMock()
+        mock_keypair.get_ecc_public_bytes.return_value = (
+            b"\x04" + b"x_coord_32_bytes_test_val_123456" + b"y_coord_32_bytes_test_val_123456"
+        )
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret, is_alice=True)
+
+        # Store original chain key
+        original_chain_key = ratchet.state.chain_key_send
+        original_send_count = ratchet.state.send_count
+
+        # Mock PQ3Crypto encryption
+        with patch("pypq3.ratchet.PQ3Crypto") as mock_crypto:
+            mock_crypto.encrypt_message.return_value = b"encrypted_data_test"
+            
+            # Encrypt first message
+            header1, ciphertext1 = ratchet.encrypt_message(b"Hello")
+            
+            # Verify chain key advanced and send count incremented
+            assert ratchet.state.chain_key_send != original_chain_key
+            assert ratchet.state.send_count == original_send_count + 1
+            
+            # Store state after first message
+            first_chain_key = ratchet.state.chain_key_send
+            first_send_count = ratchet.state.send_count
+            
+            # Encrypt second message
+            header2, ciphertext2 = ratchet.encrypt_message(b"World")
+            
+            # Verify chain key advanced again
+            assert ratchet.state.chain_key_send != first_chain_key
+            assert ratchet.state.send_count == first_send_count + 1
+
+    @patch("pypq3.ratchet.HKDF")
+    @patch("pypq3.ratchet.KeyPair")
+    def test_receiving_chain_key_advancement(self, mock_keypair_class, mock_hkdf_class):
+        """Test receiving chain key advancement during decryption."""
+        # Setup mock HKDF for multiple calls
+        mock_hkdf_instances = [MagicMock() for _ in range(3)]
+        mock_hkdf_class.side_effect = mock_hkdf_instances
+        
+        mock_hkdf_instances[0].derive.return_value = (  # Initial state
+            b"root_key_32_bytes_test_value1234"
+            + b"chain_key_32_bytes_test_value123"
+            + b"header_key_32_bytes_test_value12"
+        )
+        mock_hkdf_instances[1].derive.return_value = (  # First _kdf_ck
+            b"new_recv_chain_32_bytes_test_v12" + b"message_key_1_32_bytes_test_v12"
+        )
+
+        mock_keypair = MagicMock()
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret, is_alice=False)
+
+        # Set up receive chain key and remote public key
+        ratchet.state.chain_key_recv = b"recv_chain_32_bytes_test_value12"
+        ratchet.state.dh_remote_public = (
+            b"\x04" + b"remote_x_32_bytes_test_val_12345" + b"remote_y_32_bytes_test_val_12345"
+        )
+
+        # Store original state
+        original_chain_key = ratchet.state.chain_key_recv
+        original_recv_count = ratchet.state.recv_count
+
+        # Create test header using the same remote public key to avoid DH ratchet
+        test_header = (
+            ratchet.state.dh_remote_public +
+            (0).to_bytes(4, "big")
+        )
+        test_ciphertext = b"encrypted_test_data"
+
+        # Mock PQ3Crypto decryption
+        with patch("pypq3.ratchet.PQ3Crypto") as mock_crypto:
+            mock_crypto.decrypt_message.return_value = b"decrypted_message"
+            
+            # Decrypt message
+            plaintext = ratchet.decrypt_message(test_header, test_ciphertext)
+            
+            # Verify chain key advanced and receive count incremented
+            assert ratchet.state.chain_key_recv != original_chain_key
+            assert ratchet.state.recv_count == original_recv_count + 1
+            assert plaintext == b"decrypted_message"
+
+
+class TestMessageKeyManagement:
+    """Test message key management and skipped message handling."""
+
+    @patch("pypq3.ratchet.HKDF")
+    @patch("pypq3.ratchet.KeyPair")
+    def test_skipped_message_key_storage(self, mock_keypair_class, mock_hkdf_class):
+        """Test skipped message key storage and retrieval."""
+        # Setup mock HKDF for multiple calls
+        mock_hkdf_instances = [MagicMock() for _ in range(4)]
+        mock_hkdf_class.side_effect = mock_hkdf_instances
+        
+        mock_hkdf_instances[0].derive.return_value = (  # Initial state
+            b"root_key_32_bytes_test_value1234"
+            + b"chain_key_32_bytes_test_value123"
+            + b"header_key_32_bytes_test_value12"
+        )
+        # Setup keys for skipped messages (counter 0, 1, 2)
+        for i in range(1, 4):
+            mock_hkdf_instances[i].derive.return_value = (
+                f"chain_key_{i}_32_bytes_test_val12".encode()[:32] +
+                f"message_key_{i}_32_bytes_test_v12".encode()[:32]
+            )
+
+        mock_keypair = MagicMock()
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret)
+
+        # Set up state for skipping
+        ratchet.state.chain_key_recv = b"recv_chain_32_bytes_test_value12"
+        ratchet.state.dh_remote_public = b"remote_public_key_65_bytes_test_data_123456789012345678901234567890123456"
+        ratchet.state.recv_count = 0
+
+        # Skip 3 messages (will generate keys for counters 0, 1, 2)
+        ratchet._skip_message_keys(3)
+
+        # Verify skipped keys were stored
+        assert len(ratchet.state.skipped_keys) == 3
+        assert ratchet.state.recv_count == 3
+
+        # Verify correct keys were stored with proper identifiers
+        remote_pub = ratchet.state.dh_remote_public
+        assert (remote_pub, 0) in ratchet.state.skipped_keys
+        assert (remote_pub, 1) in ratchet.state.skipped_keys
+        assert (remote_pub, 2) in ratchet.state.skipped_keys
+
+    @patch("pypq3.ratchet.HKDF")
+    @patch("pypq3.ratchet.KeyPair")
+    def test_maximum_skipped_keys_limit(self, mock_keypair_class, mock_hkdf_class):
+        """Test maximum skipped keys limit enforcement."""
+        mock_hkdf = MagicMock()
+        mock_hkdf_class.return_value = mock_hkdf
+        mock_hkdf.derive.return_value = (
+            b"root_key_32_bytes_test_value1234"
+            + b"chain_key_32_bytes_test_value123"
+            + b"header_key_32_bytes_test_value12"
+        )
+
+        mock_keypair = MagicMock()
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret)
+
+        # Set up state
+        ratchet.state.chain_key_recv = b"recv_chain_32_bytes_test_value12"
+        ratchet.state.recv_count = 0
+
+        # Try to skip more than MAX_SKIP (1000) messages
+        with pytest.raises(ProtocolStateError, match="Too many skipped messages"):
+            ratchet._skip_message_keys(1001)
+
+        # Verify no keys were stored
+        assert len(ratchet.state.skipped_keys) == 0
+        assert ratchet.state.recv_count == 0
+
+    @patch("pypq3.ratchet.HKDF")
+    @patch("pypq3.ratchet.KeyPair")
+    def test_out_of_order_message_handling(self, mock_keypair_class, mock_hkdf_class):
+        """Test handling of out-of-order messages using skipped keys."""
+        # Setup extensive mocking for multiple operations
+        mock_hkdf_instances = [MagicMock() for _ in range(6)]
+        mock_hkdf_class.side_effect = mock_hkdf_instances
+        
+        mock_hkdf_instances[0].derive.return_value = (  # Initial state
+            b"root_key_32_bytes_test_value1234"
+            + b"chain_key_32_bytes_test_value123"
+            + b"header_key_32_bytes_test_value12"
+        )
+
+        mock_keypair = MagicMock()
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret)
+
+        # Set up state for out-of-order message scenario
+        ratchet.state.chain_key_recv = b"recv_chain_32_bytes_test_value12"
+        # Create a properly formatted 65-byte public key (starts with 0x04 followed by nulls to avoid large counter interpretation)
+        remote_pub_key = b"\x04" + b"\x00" * 64  # 65 bytes total, with safe null bytes
+        ratchet.state.dh_remote_public = remote_pub_key
+        ratchet.state.recv_count = 0
+
+        # Simulate receiving message with counter 2 (skipping 0, 1)
+        # This should trigger skipping of messages 0 and 1
+        test_message_key = b"message_key_for_counter_2_test12"
+
+        # Mock the skipped key generation
+        for i in range(1, 4):  # Will be called for counters 0, 1, and the current message
+            mock_hkdf_instances[i].derive.return_value = (
+                f"chain_key_{i}_32_bytes_test_val12".encode()[:32] +
+                (test_message_key if i == 3 else f"skipped_key_{i-1}_32_bytes_test_v12".encode()[:32])
+            )
+
+        # Create header for message with counter 2
+        test_header = remote_pub_key + (2).to_bytes(4, "big")
+        test_ciphertext = b"encrypted_message_counter_2"
+
+        with patch("pypq3.ratchet.PQ3Crypto") as mock_crypto, \
+             patch.object(ratchet, '_dh_ratchet') as mock_dh_ratchet:
+            mock_crypto.decrypt_message.return_value = b"decrypted_message_2"
+            
+            # Decrypt the out-of-order message
+            plaintext = ratchet.decrypt_message(test_header, test_ciphertext)
+
+        # Verify message was decrypted
+        assert plaintext == b"decrypted_message_2"
+        
+        # Verify skipped keys were stored for messages 0 and 1
+        assert len(ratchet.state.skipped_keys) == 2
+        assert (remote_pub_key, 0) in ratchet.state.skipped_keys
+        assert (remote_pub_key, 1) in ratchet.state.skipped_keys
+        
+        # Verify receive counter advanced to 3 (after processing message 2)
+        assert ratchet.state.recv_count == 3
+
+    @patch("pypq3.ratchet.HKDF")
+    @patch("pypq3.ratchet.KeyPair")
+    def test_header_creation_and_parsing(self, mock_keypair_class, mock_hkdf_class):
+        """Test message header creation and parsing."""
+        mock_hkdf = MagicMock()
+        mock_hkdf_class.return_value = mock_hkdf
+        mock_hkdf.derive.return_value = (
+            b"root_key_32_bytes_test_value1234"
+            + b"chain_key_32_bytes_test_value123"
+            + b"header_key_32_bytes_test_value12"
+        )
+
+        mock_keypair = MagicMock()
+        test_public_key = (
+            b"\x04" + b"x_coordinate_32_bytes_test_value" + b"y_coordinate_32_bytes_test_value"
+        )
+        mock_keypair.get_ecc_public_bytes.return_value = test_public_key
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret)
+
+        # Set send counter
+        ratchet.state.send_count = 42
+
+        # Create header
+        header = ratchet._create_header()
+
+        # Verify header format (65 bytes public key + 4 bytes counter)
+        assert len(header) == 69
+        assert header[:65] == test_public_key
+        assert header[65:69] == (42).to_bytes(4, "big")
+
+        # Test header parsing
+        parsed_pub_key, parsed_counter = ratchet._parse_header(header)
+        assert parsed_pub_key == test_public_key
+        assert parsed_counter == 42
+
+    @patch("pypq3.ratchet.HKDF") 
+    @patch("pypq3.ratchet.KeyPair")
+    def test_header_parsing_invalid_length(self, mock_keypair_class, mock_hkdf_class):
+        """Test header parsing with invalid length."""
+        mock_hkdf = MagicMock()
+        mock_hkdf_class.return_value = mock_hkdf
+        mock_hkdf.derive.return_value = (
+            b"root_key_32_bytes_test_value1234"
+            + b"chain_key_32_bytes_test_value123"
+            + b"header_key_32_bytes_test_value12"
+        )
+
+        mock_keypair = MagicMock()
+        mock_keypair_class.generate.return_value = mock_keypair
+
+        mock_shared_secret = MagicMock()
+        mock_shared_secret.secret = b"shared_secret_32_bytes_test123"
+        ratchet = PQ3Ratchet(mock_shared_secret)
+
+        # Test with header too short
+        short_header = b"too_short"
+        with pytest.raises(ProtocolStateError, match="Invalid header length"):
+            ratchet._parse_header(short_header)
