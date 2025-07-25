@@ -1,6 +1,7 @@
 """
 Tests for core PQ3 protocol implementation.
 """
+
 import sys
 import os
 

@@ -1,6 +1,7 @@
 """
 Tests for crypto module.
 """
+
 import sys
 import os
 

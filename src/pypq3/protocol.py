@@ -35,9 +35,9 @@ class DeviceIdentity:
             device_id=data["device_id"],
             ecc_public_key=bytes.fromhex(data["ecc_public_key"]),
             kyber_public_key=bytes.fromhex(data["kyber_public_key"]),
-            signature=bytes.fromhex(data["signature"])
-            if data.get("signature")
-            else None,
+            signature=(
+                bytes.fromhex(data["signature"]) if data.get("signature") else None
+            ),
         )
 
 

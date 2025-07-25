@@ -1,6 +1,7 @@
 """
 Tests for ratchet module - Double ratchet with post-quantum extensions.
 """
+
 import sys
 import os
 
@@ -835,8 +836,9 @@ class TestMessageKeyManagement:
         test_header = remote_pub_key + (2).to_bytes(4, "big")
         test_ciphertext = b"encrypted_message_counter_2"
 
-        with patch("pypq3.ratchet.PQ3Crypto") as mock_crypto, patch.object(
-            ratchet, "_dh_ratchet"
+        with (
+            patch("pypq3.ratchet.PQ3Crypto") as mock_crypto,
+            patch.object(ratchet, "_dh_ratchet"),
         ):
             mock_crypto.decrypt_message.return_value = b"decrypted_message_2"
 
@@ -1009,9 +1011,11 @@ class TestMessageKeyManagement:
         test_header = new_public_key + (0).to_bytes(4, "big")
 
         # Mock _skip_message_keys and _dh_ratchet
-        with patch.object(ratchet, "_skip_message_keys") as mock_skip, patch.object(
-            ratchet, "_dh_ratchet"
-        ) as mock_dh_ratchet, patch("pypq3.ratchet.PQ3Crypto") as mock_crypto:
+        with (
+            patch.object(ratchet, "_skip_message_keys") as mock_skip,
+            patch.object(ratchet, "_dh_ratchet") as mock_dh_ratchet,
+            patch("pypq3.ratchet.PQ3Crypto") as mock_crypto,
+        ):
             # Setup return values
             mock_crypto.decrypt_message.return_value = b"decrypted"
 
