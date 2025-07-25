@@ -119,11 +119,11 @@ Custom exception hierarchy with specific error types:
 
 - **pyproject.toml**: Modern Python packaging with tool configurations
 - **.flake8**: Linting rules (88 char line length, test file import exceptions)
-- **GitHub Actions**: Automated testing on Python 3.8-3.12 with linting
+- **GitHub Actions**: Automated testing on Python 3.9-3.12 with linting
 
 ### Development Notes
 
 - **Dependencies**: Requires `cryptography`, `pycryptodome`, and `kyber-py` packages
-- **Python Support**: 3.8+ with full type hints throughout codebase
+- **Python Support**: 3.9+ with full type hints throughout codebase
 - **Security Focus**: Educational implementation - see README security considerations for production use
 - **Code Style**: Black formatting (88 chars), flake8 linting, mypy type checking required
