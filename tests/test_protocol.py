@@ -4,7 +4,6 @@ Tests for PQ3 protocol key exchange implementation.
 
 import sys
 import json
-import time
 from unittest.mock import MagicMock, patch, call
 import pytest
 
@@ -21,8 +20,12 @@ class TestDeviceIdentity:
     def test_device_identity_creation(self):
         """Test basic DeviceIdentity creation."""
         device_id = "test_device_123"
-        ecc_key = b"ecc_public_key_65_bytes_test_data_123456789012345678901234567890123456789"
-        kyber_key = b"kyber_public_key_test_data_1234567890123456789012345678901234567890"
+        ecc_key = (
+            b"ecc_public_key_65_bytes_test_data_123456789012345678901234567890123456789"
+        )
+        kyber_key = (
+            b"kyber_public_key_test_data_1234567890123456789012345678901234567890"
+        )
         signature = b"test_signature_data_12345678901234567890"
 
         identity = DeviceIdentity(
@@ -106,8 +109,8 @@ class TestDeviceIdentity:
         """Test DeviceIdentity deserialization from dictionary."""
         data = {
             "device_id": "test_device_from_dict",
-            "ecc_public_key": "656363546573744461746131323334",  # "eccTestData1234" in hex
-            "kyber_public_key": "6b7962657254657374446174613132333435363738",  # "kyberTestData12345678" in hex
+            "ecc_public_key": "656363546573744461746131323334",  # hex
+            "kyber_public_key": "6b7962657254657374446174613132333435363738",  # hex
             "signature": "7369674461746131323334",  # "sigData1234" in hex
         }
 
@@ -194,22 +197,24 @@ class TestInitialKeyExchange:
         """Test InitialKeyExchange deserialization from dictionary."""
         sender_data = {
             "device_id": "sender_from_dict",
-            "ecc_public_key": "656363446174614672616d6544696374",  # "eccDataFrameDict" in hex
-            "kyber_public_key": "6b79626572446174614672616d6544696374",  # "kyberDataFrameDict" in hex
+            "ecc_public_key": "656363446174614672616d6544696374",  # hex
+            "kyber_public_key": "6b79626572446174614672616d6544696374",  # hex
             "signature": None,
         }
 
         data = {
             "sender_identity": sender_data,
-            "ephemeral_ecc_public": "657068656d6572616c446174614672616d65",  # "ephemeralDataFrame" in hex
-            "kyber_ciphertext": "63697068657274657874446174614672616d65",  # "ciphertextDataFrame" in hex
+            "ephemeral_ecc_public": "657068656d6572616c446174614672616d65",  # hex
+            "kyber_ciphertext": "63697068657274657874446174614672616d65",  # hex
             "timestamp": 1122334455,
         }
 
         key_exchange = InitialKeyExchange.from_dict(data)
 
         assert key_exchange.sender_identity.device_id == "sender_from_dict"
-        assert key_exchange.ephemeral_ecc_public == bytes.fromhex(data["ephemeral_ecc_public"])
+        assert key_exchange.ephemeral_ecc_public == bytes.fromhex(
+            data["ephemeral_ecc_public"]
+        )
         assert key_exchange.kyber_ciphertext == bytes.fromhex(data["kyber_ciphertext"])
         assert key_exchange.timestamp == 1122334455
 
@@ -222,8 +227,12 @@ class TestPQ3KeyExchange:
         """Test PQ3KeyExchange initialization."""
         # Setup mocks
         mock_keypair = MagicMock()
-        mock_keypair.get_ecc_public_bytes.return_value = b"ecc_public_key_bytes_test_data"
-        mock_keypair.get_kyber_public_bytes.return_value = b"kyber_public_key_bytes_test_data"
+        mock_keypair.get_ecc_public_bytes.return_value = (
+            b"ecc_public_key_bytes_test_data"
+        )
+        mock_keypair.get_kyber_public_bytes.return_value = (
+            b"kyber_public_key_bytes_test_data"
+        )
         mock_keypair_class.generate.return_value = mock_keypair
 
         device_id = "test_device_init"
@@ -235,8 +244,13 @@ class TestPQ3KeyExchange:
         assert exchange.device_id == device_id
         assert exchange.identity_keypair == mock_keypair
         assert exchange.device_identity.device_id == device_id
-        assert exchange.device_identity.ecc_public_key == b"ecc_public_key_bytes_test_data"
-        assert exchange.device_identity.kyber_public_key == b"kyber_public_key_bytes_test_data"
+        assert (
+            exchange.device_identity.ecc_public_key == b"ecc_public_key_bytes_test_data"
+        )
+        assert (
+            exchange.device_identity.kyber_public_key
+            == b"kyber_public_key_bytes_test_data"
+        )
         assert exchange.device_identity.signature is None
 
         # Verify KeyPair.generate was called once
@@ -245,7 +259,9 @@ class TestPQ3KeyExchange:
     @patch("pypq3.protocol.KeyPair")
     @patch("pypq3.protocol.PQ3Crypto")
     @patch("time.time")
-    def test_initiate_key_exchange_success(self, mock_time, mock_crypto, mock_keypair_class):
+    def test_initiate_key_exchange_success(
+        self, mock_time, mock_crypto, mock_keypair_class
+    ):
         """Test successful key exchange initiation."""
         # Setup mocks
         mock_time.return_value = 1234567890.5
@@ -253,17 +269,26 @@ class TestPQ3KeyExchange:
         # Setup identity keypair
         mock_identity_keypair = MagicMock()
         mock_identity_keypair.get_ecc_public_bytes.return_value = b"identity_ecc_public"
-        mock_identity_keypair.get_kyber_public_bytes.return_value = b"identity_kyber_public"
+        mock_identity_keypair.get_kyber_public_bytes.return_value = (
+            b"identity_kyber_public"
+        )
 
         # Setup ephemeral keypair
         mock_ephemeral_keypair = MagicMock()
-        mock_ephemeral_keypair.get_ecc_public_bytes.return_value = b"ephemeral_ecc_public"
+        mock_ephemeral_keypair.get_ecc_public_bytes.return_value = (
+            b"ephemeral_ecc_public"
+        )
 
-        mock_keypair_class.generate.side_effect = [mock_identity_keypair, mock_ephemeral_keypair]
+        mock_keypair_class.generate.side_effect = [
+            mock_identity_keypair,
+            mock_ephemeral_keypair,
+        ]
 
         # Setup crypto mocks
         identity_shared = SharedSecret(b"identity_ecc_shared", b"identity_kyber_shared")
-        ephemeral_shared = SharedSecret(b"ephemeral_ecc_shared", b"ephemeral_kyber_shared")
+        ephemeral_shared = SharedSecret(
+            b"ephemeral_ecc_shared", b"ephemeral_kyber_shared"
+        )
 
         mock_crypto.perform_key_exchange_initiator.side_effect = [
             (identity_shared, b"identity_kyber_ct"),
@@ -285,7 +310,9 @@ class TestPQ3KeyExchange:
         exchange = PQ3KeyExchange("initiator_device")
 
         # Initiate key exchange
-        key_exchange_msg, combined_secret = exchange.initiate_key_exchange(remote_identity)
+        key_exchange_msg, combined_secret = exchange.initiate_key_exchange(
+            remote_identity
+        )
 
         # Verify key exchange message
         assert isinstance(key_exchange_msg, InitialKeyExchange)
@@ -301,22 +328,31 @@ class TestPQ3KeyExchange:
 
         # Verify crypto calls
         assert mock_crypto.perform_key_exchange_initiator.call_count == 2
-        mock_crypto.perform_key_exchange_initiator.assert_has_calls([
-            call(mock_identity_keypair, b"remote_ecc_key", b"remote_kyber_key"),
-            call(mock_ephemeral_keypair, b"remote_ecc_key", b"remote_kyber_key"),
-        ])
+        mock_crypto.perform_key_exchange_initiator.assert_has_calls(
+            [
+                call(mock_identity_keypair, b"remote_ecc_key", b"remote_kyber_key"),
+                call(mock_ephemeral_keypair, b"remote_ecc_key", b"remote_kyber_key"),
+            ]
+        )
 
     @patch("pypq3.protocol.KeyPair")
     @patch("pypq3.protocol.PQ3Crypto")
-    def test_initiate_key_exchange_crypto_failure(self, mock_crypto, mock_keypair_class):
+    def test_initiate_key_exchange_crypto_failure(
+        self, mock_crypto, mock_keypair_class
+    ):
         """Test key exchange initiation with crypto failure."""
         # Setup mocks
         mock_identity_keypair = MagicMock()
         mock_ephemeral_keypair = MagicMock()
-        mock_keypair_class.generate.side_effect = [mock_identity_keypair, mock_ephemeral_keypair]
+        mock_keypair_class.generate.side_effect = [
+            mock_identity_keypair,
+            mock_ephemeral_keypair,
+        ]
 
         # Make crypto operation fail
-        mock_crypto.perform_key_exchange_initiator.side_effect = Exception("Crypto operation failed")
+        mock_crypto.perform_key_exchange_initiator.side_effect = Exception(
+            "Crypto operation failed"
+        )
 
         remote_identity = DeviceIdentity(
             device_id="remote_device",
@@ -333,27 +369,43 @@ class TestPQ3KeyExchange:
     @patch("pypq3.protocol.KeyPair")
     @patch("pypq3.protocol.PQ3Crypto")
     @patch("time.time")
-    def test_respond_to_key_exchange_success(self, mock_time, mock_crypto, mock_keypair_class):
+    def test_respond_to_key_exchange_success(
+        self, mock_time, mock_crypto, mock_keypair_class
+    ):
         """Test successful key exchange response."""
         # Setup mocks
         mock_time.return_value = 2345678901.7
 
         # Setup identity keypair
         mock_identity_keypair = MagicMock()
-        mock_identity_keypair.get_ecc_public_bytes.return_value = b"responder_identity_ecc"
-        mock_identity_keypair.get_kyber_public_bytes.return_value = b"responder_identity_kyber"
+        mock_identity_keypair.get_ecc_public_bytes.return_value = (
+            b"responder_identity_ecc"
+        )
+        mock_identity_keypair.get_kyber_public_bytes.return_value = (
+            b"responder_identity_kyber"
+        )
 
         # Setup temp keypair for response
         mock_temp_keypair = MagicMock()
         mock_temp_keypair.get_ecc_public_bytes.return_value = b"temp_ecc_public"
 
-        mock_keypair_class.generate.side_effect = [mock_identity_keypair, mock_temp_keypair]
+        mock_keypair_class.generate.side_effect = [
+            mock_identity_keypair,
+            mock_temp_keypair,
+        ]
 
         # Setup crypto mocks
-        identity_shared = SharedSecret(b"response_identity_ecc_shared", b"response_identity_kyber_shared")
-        ephemeral_shared = SharedSecret(b"response_ephemeral_ecc_shared", b"response_ephemeral_kyber_shared")
+        identity_shared = SharedSecret(
+            b"response_identity_ecc_shared", b"response_identity_kyber_shared"
+        )
+        ephemeral_shared = SharedSecret(
+            b"response_ephemeral_ecc_shared", b"response_ephemeral_kyber_shared"
+        )
 
-        mock_crypto.perform_key_exchange_initiator.return_value = (identity_shared, b"response_identity_kyber_ct")
+        mock_crypto.perform_key_exchange_initiator.return_value = (
+            identity_shared,
+            b"response_identity_kyber_ct",
+        )
         mock_crypto.perform_key_exchange_responder.return_value = ephemeral_shared
         mock_crypto.hash_data.side_effect = [
             b"response_combined_ecc_hash_32_by12",
@@ -378,7 +430,9 @@ class TestPQ3KeyExchange:
         responder = PQ3KeyExchange("responder_device")
 
         # Respond to key exchange
-        response_msg, combined_secret = responder.respond_to_key_exchange(incoming_exchange)
+        response_msg, combined_secret = responder.respond_to_key_exchange(
+            incoming_exchange
+        )
 
         # Verify response message
         assert isinstance(response_msg, InitialKeyExchange)
@@ -409,7 +463,9 @@ class TestPQ3KeyExchange:
         mock_keypair_class.generate.return_value = mock_identity_keypair
 
         # Make responder crypto operation fail
-        mock_crypto.perform_key_exchange_responder.side_effect = Exception("Responder operation failed")
+        mock_crypto.perform_key_exchange_responder.side_effect = Exception(
+            "Responder operation failed"
+        )
 
         # Create incoming key exchange
         sender_identity = DeviceIdentity(
@@ -458,10 +514,12 @@ class TestPQ3KeyExchange:
         assert result.kyber_shared == b"combined_kyber_hash_result_32_by12"
 
         # Verify hash_data calls
-        mock_crypto.hash_data.assert_has_calls([
-            call(b"identity_ecc_data" + b"ephemeral_ecc_data"),
-            call(b"identity_kyber_data" + b"ephemeral_kyber_data"),
-        ])
+        mock_crypto.hash_data.assert_has_calls(
+            [
+                call(b"identity_ecc_data" + b"ephemeral_ecc_data"),
+                call(b"identity_kyber_data" + b"ephemeral_kyber_data"),
+            ]
+        )
 
     @patch("pypq3.protocol.KeyPair")
     def test_serialize_identity(self, mock_keypair_class):
@@ -487,8 +545,8 @@ class TestPQ3KeyExchange:
         """Test device identity deserialization."""
         test_data = {
             "device_id": "deserialization_test_device",
-            "ecc_public_key": "646573657269616c697a6174696f6e5f6563635f6b6579",  # "deserialization_ecc_key" in hex
-            "kyber_public_key": "646573657269616c697a6174696f6e5f6b796265725f6b6579",  # "deserialization_kyber_key" in hex
+            "ecc_public_key": "646573657269616c697a6174696f6e5f6563635f6b6579",  # hex
+            "kyber_public_key": "646573657269616c697a6174696f6e5f6b796265725f6b6579",
             "signature": None,
         }
 

@@ -154,7 +154,7 @@ class TestPQ3Crypto:
         assert isinstance(ciphertext, bytes)
 
     def test_key_exchange_no_kyber(self):
-        """Test key exchange when Kyber is not available.""" 
+        """Test key exchange when Kyber is not available."""
         with patch("pypq3.crypto.kyber", None):
             # This will fail during KeyPair.generate(), so we test the error path
             with pytest.raises(CryptographicError, match="Kyber library not available"):
@@ -165,18 +165,18 @@ class TestPQ3Crypto:
         # This test ensures the import error lines are covered
         # The actual import happens at module load time, so we test the None case
         import pypq3.crypto as crypto_module
-        
+
         # Save original kyber
         original_kyber = crypto_module.kyber
-        
+
         try:
             # Simulate kyber being None (import failed)
             crypto_module.kyber = None
-            
+
             # Test KeyPair.generate fails
             with pytest.raises(CryptographicError, match="Kyber library not available"):
                 KeyPair.generate()
-                
+
         finally:
             # Restore original kyber
             crypto_module.kyber = original_kyber
@@ -188,26 +188,26 @@ class TestPQ3Crypto:
         with patch("pypq3.crypto.kyber") as mock_kyber:
             mock_kyber.Kyber1024.keygen.return_value = (b"pub", b"priv")
             keypair = KeyPair.generate()
-            
+
         # Now test with kyber = None, but we need valid ECC key to reach kyber check
         valid_ecc_key = keypair.get_ecc_public_bytes()
-        
+
         with pytest.raises(CryptographicError, match="Kyber library not available"):
             PQ3Crypto.perform_key_exchange_initiator(
                 keypair, valid_ecc_key, b"kyber_key"
             )
 
-    @patch("pypq3.crypto.kyber", None) 
+    @patch("pypq3.crypto.kyber", None)
     def test_key_exchange_responder_no_kyber(self):
         """Test key exchange responder when kyber is None."""
         # Create a valid keypair first with kyber available
         with patch("pypq3.crypto.kyber") as mock_kyber:
             mock_kyber.Kyber1024.keygen.return_value = (b"pub", b"priv")
             keypair = KeyPair.generate()
-            
+
         # Now test with kyber = None, but we need valid ECC key to reach kyber check
         valid_ecc_key = keypair.get_ecc_public_bytes()
-        
+
         with pytest.raises(CryptographicError, match="Kyber library not available"):
             PQ3Crypto.perform_key_exchange_responder(
                 keypair, valid_ecc_key, b"kyber_ciphertext"
@@ -218,13 +218,13 @@ class TestPQ3Crypto:
         """Test key exchange initiator with cryptographic errors."""
         # Setup kyber mock for key generation
         mock_kyber.Kyber1024.keygen.return_value = (b"pub_key", b"priv_key")
-        
+
         # Generate keypair first
         mock_keypair = KeyPair.generate()
-        
+
         # Mock kyber to raise an exception during encaps
         mock_kyber.Kyber1024.encaps.side_effect = Exception("Kyber encaps failed")
-        
+
         with pytest.raises(CryptographicError, match="Key exchange failed"):
             PQ3Crypto.perform_key_exchange_initiator(
                 mock_keypair, b"remote_ecc_key", b"remote_kyber_key"
@@ -235,12 +235,12 @@ class TestPQ3Crypto:
         """Test key exchange responder with invalid ECC key."""
         # Setup kyber mock for key generation
         mock_kyber.Kyber1024.keygen.return_value = (b"pub_key", b"priv_key")
-        
+
         mock_keypair = KeyPair.generate()
-        
+
         # Invalid ECC key bytes that will cause parsing to fail
         invalid_ecc_key = b"invalid_ecc_key_data"
-        
+
         with pytest.raises(CryptographicError, match="Key exchange failed"):
             PQ3Crypto.perform_key_exchange_responder(
                 mock_keypair, invalid_ecc_key, b"kyber_ciphertext"
@@ -251,15 +251,15 @@ class TestPQ3Crypto:
         """Test key exchange responder with Kyber decaps error."""
         # Setup kyber mock for key generation
         mock_kyber.Kyber1024.keygen.return_value = (b"pub_key", b"priv_key")
-        
+
         mock_keypair = KeyPair.generate()
-        
+
         # Mock valid ECC key but kyber decaps failure
         mock_kyber.Kyber1024.decaps.side_effect = Exception("Decaps failed")
-        
+
         # Use a valid ECC key format
         valid_ecc_key = mock_keypair.get_ecc_public_bytes()
-        
+
         with pytest.raises(CryptographicError, match="Key exchange failed"):
             PQ3Crypto.perform_key_exchange_responder(
                 mock_keypair, valid_ecc_key, b"invalid_kyber_ciphertext"
@@ -270,21 +270,21 @@ class TestPQ3Crypto:
         """Test successful key exchange responder path."""
         # Setup kyber mock for key generation
         mock_kyber.Kyber1024.keygen.return_value = (b"pub_key", b"priv_key")
-        
+
         # Generate keypair
         keypair = KeyPair.generate()
-        
+
         # Mock successful decaps
         mock_kyber.Kyber1024.decaps.return_value = b"kyber_shared_secret"
-        
+
         # Use valid ECC key
         valid_ecc_key = keypair.get_ecc_public_bytes()
-        
+
         # Should succeed and return SharedSecret
         result = PQ3Crypto.perform_key_exchange_responder(
             keypair, valid_ecc_key, b"kyber_ciphertext"
         )
-        
+
         assert isinstance(result, SharedSecret)
         mock_kyber.Kyber1024.decaps.assert_called_once_with(
             b"priv_key", b"kyber_ciphertext"
@@ -294,6 +294,6 @@ class TestPQ3Crypto:
         """Test encrypt message with invalid key causing ChaCha20 error."""
         # Invalid key length (ChaCha20 needs 32 bytes)
         invalid_key = b"short_key"
-        
+
         with pytest.raises(CryptographicError, match="Encryption failed"):
             PQ3Crypto.encrypt_message(invalid_key, b"plaintext")

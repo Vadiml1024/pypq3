@@ -347,7 +347,9 @@ class TestPQ3Protocol:
     def test_initiate_session_failure(self, mock_key_exchange_class):
         """Test session initiation failure."""
         mock_key_exchange = MagicMock()
-        mock_key_exchange.initiate_key_exchange.side_effect = Exception("Key exchange failed")
+        mock_key_exchange.initiate_key_exchange.side_effect = Exception(
+            "Key exchange failed"
+        )
         mock_key_exchange_class.return_value = mock_key_exchange
 
         protocol = PQ3Protocol("test_device")
@@ -359,7 +361,9 @@ class TestPQ3Protocol:
 
     @patch("pypq3.core.PQ3KeyExchange")
     @patch("pypq3.core.PQ3Session")
-    def test_handle_key_exchange_new_initiation(self, mock_session_class, mock_key_exchange_class):
+    def test_handle_key_exchange_new_initiation(
+        self, mock_session_class, mock_key_exchange_class
+    ):
         """Test handling new key exchange initiation."""
         # Setup mocks
         mock_key_exchange = MagicMock()
@@ -367,7 +371,10 @@ class TestPQ3Protocol:
         mock_response.to_dict.return_value = {"response": "data"}
         mock_shared_secret = MagicMock()
 
-        mock_key_exchange.respond_to_key_exchange.return_value = (mock_response, mock_shared_secret)
+        mock_key_exchange.respond_to_key_exchange.return_value = (
+            mock_response,
+            mock_shared_secret,
+        )
         mock_key_exchange_class.return_value = mock_key_exchange
 
         mock_session = MagicMock()
@@ -378,17 +385,19 @@ class TestPQ3Protocol:
         # Create test key exchange data
         sender_identity = MagicMock()
         sender_identity.device_id = "sender_device"
-        
+
         initial_exchange = MagicMock()
         initial_exchange.sender_identity = sender_identity
         initial_exchange.to_dict.return_value = {"test": "data"}
 
         # Mock the JSON parsing
-        key_exchange_data = '{"sender_identity": {"device_id": "sender_device"}, "test": "data"}'
+        key_exchange_data = (
+            '{"sender_identity": {"device_id": "sender_device"}, "test": "data"}'
+        )
 
         with patch("pypq3.core.InitialKeyExchange") as mock_initial_exchange_class:
             mock_initial_exchange_class.from_dict.return_value = initial_exchange
-            
+
             response = protocol.handle_key_exchange(key_exchange_data)
 
         # Verify response
@@ -404,7 +413,9 @@ class TestPQ3Protocol:
 
     @patch("pypq3.core.PQ3KeyExchange")
     @patch("pypq3.core.PQ3Session")
-    def test_handle_key_exchange_response_to_pending(self, mock_session_class, mock_key_exchange_class):
+    def test_handle_key_exchange_response_to_pending(
+        self, mock_session_class, mock_key_exchange_class
+    ):
         """Test handling key exchange response to pending exchange."""
         mock_key_exchange_class.return_value = MagicMock()
         mock_session = MagicMock()
@@ -414,20 +425,25 @@ class TestPQ3Protocol:
 
         # Add pending key exchange
         mock_shared_secret = MagicMock()
-        protocol.pending_key_exchanges["sender_device"] = (MagicMock(), mock_shared_secret)
+        protocol.pending_key_exchanges["sender_device"] = (
+            MagicMock(),
+            mock_shared_secret,
+        )
 
         # Create test response data
         sender_identity = MagicMock()
         sender_identity.device_id = "sender_device"
-        
+
         response_exchange = MagicMock()
         response_exchange.sender_identity = sender_identity
 
-        key_exchange_data = '{"sender_identity": {"device_id": "sender_device"}, "response": "data"}'
+        key_exchange_data = (
+            '{"sender_identity": {"device_id": "sender_device"}, "response": "data"}'
+        )
 
         with patch("pypq3.core.InitialKeyExchange") as mock_initial_exchange_class:
             mock_initial_exchange_class.from_dict.return_value = response_exchange
-            
+
             response = protocol.handle_key_exchange(key_exchange_data)
 
         # Verify no response returned (completing existing exchange)
@@ -444,19 +460,23 @@ class TestPQ3Protocol:
     def test_handle_key_exchange_failure(self, mock_key_exchange_class):
         """Test key exchange handling failure."""
         mock_key_exchange = MagicMock()
-        mock_key_exchange.respond_to_key_exchange.side_effect = Exception("Response failed")
+        mock_key_exchange.respond_to_key_exchange.side_effect = Exception(
+            "Response failed"
+        )
         mock_key_exchange_class.return_value = mock_key_exchange
 
         protocol = PQ3Protocol("test_device")
 
         # Create test key exchange data
-        key_exchange_data = '{"sender_identity": {"device_id": "sender_device"}, "test": "data"}'
+        key_exchange_data = (
+            '{"sender_identity": {"device_id": "sender_device"}, "test": "data"}'
+        )
 
         with patch("pypq3.core.InitialKeyExchange") as mock_initial_exchange_class:
             mock_initial_exchange = MagicMock()
             mock_initial_exchange.sender_identity.device_id = "sender_device"
             mock_initial_exchange_class.from_dict.return_value = mock_initial_exchange
-            
+
             with pytest.raises(PQ3Error, match="Key exchange handling failed"):
                 protocol.handle_key_exchange(key_exchange_data)
 
@@ -465,7 +485,7 @@ class TestPQ3Protocol:
     def test_receive_message_success(self, mock_session_class, mock_key_exchange_class):
         """Test successful message reception."""
         mock_key_exchange_class.return_value = MagicMock()
-        
+
         mock_session = MagicMock()
         mock_session.decrypt_message.return_value = "Hello World!"
         mock_session_class.return_value = mock_session
@@ -474,17 +494,19 @@ class TestPQ3Protocol:
         protocol.sessions["sender_device"] = mock_session
 
         # Create test message data
-        message_data = json.dumps({
-            "sender_device_id": "sender_device",
-            "recipient_device_id": "test_device",
-            "header": "68656164657264617461",  # "headerdata" in hex
-            "ciphertext": "63697068657274657874646174616130",  # "ciphertextdata0" in hex
-            "timestamp": 1234567890,
-            "message_id": "msg_001"
-        })
+        message_data = json.dumps(
+            {
+                "sender_device_id": "sender_device",
+                "recipient_device_id": "test_device",
+                "header": "68656164657264617461",  # "headerdata" in hex
+                "ciphertext": "63697068657274657874646174616130",  # hex
+                "timestamp": 1234567890,
+                "message_id": "msg_001",
+            }
+        )
 
         sender_id, plaintext = protocol.receive_message(message_data)
-        
+
         assert sender_id == "sender_device"
         assert plaintext == "Hello World!"
 
@@ -494,14 +516,16 @@ class TestPQ3Protocol:
         mock_key_exchange_class.return_value = MagicMock()
         protocol = PQ3Protocol("test_device")
 
-        message_data = json.dumps({
-            "sender_device_id": "unknown_device",
-            "recipient_device_id": "test_device",
-            "header": "68656164657264617461", 
-            "ciphertext": "63697068657274657874646174616130",
-            "timestamp": 1234567890,
-            "message_id": "msg_001"
-        })
+        message_data = json.dumps(
+            {
+                "sender_device_id": "unknown_device",
+                "recipient_device_id": "test_device",
+                "header": "68656164657264617461",
+                "ciphertext": "63697068657274657874646174616130",
+                "timestamp": 1234567890,
+                "message_id": "msg_001",
+            }
+        )
 
         with pytest.raises(PQ3Error, match="No session with device unknown_device"):
             protocol.receive_message(message_data)
